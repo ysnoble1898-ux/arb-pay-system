@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>아르바이트 급여 관리 시스템</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body,#root{height:100%}
+    body{font-family:'Noto Sans KR',sans-serif;background:#F0F3F8}
+    input[type=time]::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer}
+    input:focus{outline:2px solid #1657A8!important;outline-offset:1px}
+    select option{color:#1E2D3D;background:#fff}
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-thumb{background:#bbb;border-radius:3px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    @media print{#sidebar,#topbar,#no-print{display:none!important}body{background:white!important}}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const FB_CONFIG = {
+  apiKey:"AIzaSyD49O6DUCeCeGGmogvBSUmNWesOgJGrAmU",
+  authDomain:"arb-pay-noble-9cf6b.firebaseapp.com",
+  projectId:"arb-pay-noble-9cf6b",
+  storageBucket:"arb-pay-noble-9cf6b.firebasestorage.app",
+  messagingSenderId:"310008227331",
+  appId:"1:310008227331:web:054c2b79b57bc5c7215036",
+};
+try{firebase.initializeApp(FB_CONFIG);}catch(e){}
+const db = firebase.firestore();
+</script>
+<script type="text/babel">
+const {useState,useMemo,useEffect,useCallback,useRef} = React;
+
+/* ─── 상수 ──────────────────────────────────────────────────────── */
+const VER="2.1",C={
+  bg:"#F0F3F8",sidebar:"#1A2B44",sidebarAct:"#1657A8",sidTxt:"#A8BEDB",
+  header:"#1657A8",card:"#FFF",border:"#DCE4F0",text:"#1E2D3D",mid:"#5B6F85",light:"#95A5A6",
+  green:"#16A34A",orange:"#D97706",red:"#DC2626",blue:"#1657A8",
+  rowAlt:"#F8FAFD",rowSun:"#FFF5F5",rowSat:"#F0F5FF",
+};
+const DOW=["일","월","화","수","목","금","토"];
+const MONTHS_KOR=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`${m}월`);
+const YEARS=[2022,2023,2024,2025,2026,2027];
+
+/* ─── 유틸 ──────────────────────────────────────────────────────── */
+const daysInMonth=(y,m)=>new Date(y,m,0).getDate();
+const dowOf=(y,m,d)=>new Date(y,m-1,d).getDay();
+const isWe=dow=>dow===0||dow===6;
+const t2m=t=>{if(!t)return 0;const[h,mi]=t.split(":").map(Number);return(h||0)*60+(mi||0);};
+const m2t=m=>{if(m===null||m===undefined)return"--:--";const a=Math.abs(m);return`${String(Math.floor(a/60)).padStart(2,"0")}:${String(a%60).padStart(2,"0")}`;};
+const workMins=(i,o)=>{if(!i||!o)return 0;let a=t2m(i),b=t2m(o);if(b<a)b+=1440;return Math.max(0,b-a);};
+const won=n=>Math.round(n||0).toLocaleString("ko-KR");
+
+/* ─── 세션 관리 ─────────────────────────────────────────────────── */
+const SS_KEY="arb_sess";
+const loadSess=()=>{try{return JSON.parse(sessionStorage.getItem(SS_KEY));}catch{return null;}};
+const saveSess=u=>sessionStorage.setItem(SS_KEY,JSON.stringify(u));
+const clearSess=()=>sessionStorage.removeItem(SS_KEY);
+
+/* ─── 공휴일 (2022~2027) ────────────────────────────────────────── */
+const HOLIDAYS={
+  "2022-01-01":"신정","2022-03-01":"삼일절","2022-05-05":"어린이날","2022-06-06":"현충일","2022-08-15":"광복절","2022-09-09":"추석연휴","2022-09-10":"추석","2022-09-12":"대체공휴일","2022-10-03":"개천절","2022-10-10":"대체공휴일","2022-12-25":"크리스마스",
+  "2023-01-01":"신정","2023-01-21":"설날연휴","2023-01-22":"설날","2023-01-23":"설날연휴","2023-01-24":"대체공휴일","2023-03-01":"삼일절","2023-05-05":"어린이날","2023-05-27":"부처님오신날","2023-05-29":"대체공휴일","2023-06-06":"현충일","2023-08-15":"광복절","2023-09-28":"추석연휴","2023-09-29":"추석","2023-09-30":"추석연휴","2023-10-02":"임시공휴일","2023-10-03":"개천절","2023-10-09":"한글날","2023-12-25":"크리스마스",
+  "2024-01-01":"신정","2024-02-09":"설날연휴","2024-02-10":"설날","2024-02-11":"설날연휴","2024-02-12":"대체공휴일","2024-03-01":"삼일절","2024-05-05":"어린이날","2024-05-06":"대체공휴일","2024-05-15":"부처님오신날","2024-06-06":"현충일","2024-08-15":"광복절","2024-09-16":"추석연휴","2024-09-17":"추석","2024-09-18":"추석연휴","2024-10-03":"개천절","2024-10-09":"한글날","2024-12-25":"크리스마스",
+  "2025-01-01":"신정","2025-01-28":"설날연휴","2025-01-29":"설날","2025-01-30":"설날연휴","2025-03-01":"삼일절","2025-03-03":"대체공휴일","2025-05-05":"어린이날","2025-05-06":"부처님오신날","2025-06-06":"현충일","2025-08-15":"광복절","2025-10-03":"개천절","2025-10-05":"추석연휴","2025-10-06":"추석","2025-10-07":"추석연휴","2025-10-08":"대체공휴일","2025-10-09":"한글날","2025-12-25":"크리스마스",
+  "2026-01-01":"신정","2026-02-17":"설날연휴","2026-02-18":"설날","2026-02-19":"설날연휴","2026-02-20":"대체공휴일","2026-03-01":"삼일절","2026-03-02":"대체공휴일","2026-05-05":"어린이날","2026-05-24":"부처님오신날","2026-05-25":"대체공휴일","2026-06-06":"현충일","2026-08-15":"광복절","2026-09-24":"추석연휴","2026-09-25":"추석","2026-09-26":"추석연휴","2026-09-28":"대체공휴일","2026-10-03":"개천절","2026-10-09":"한글날","2026-12-25":"크리스마스",
+  "2027-01-01":"신정","2027-02-07":"설날연휴","2027-02-08":"설날","2027-02-09":"설날연휴","2027-03-01":"삼일절","2027-05-05":"어린이날","2027-05-13":"부처님오신날","2027-06-07":"대체공휴일","2027-08-16":"대체공휴일","2027-09-14":"추석연휴","2027-09-15":"추석","2027-09-16":"추석연휴","2027-10-04":"대체공휴일","2027-10-09":"한글날","2027-10-11":"대체공휴일","2027-12-25":"크리스마스",
+};
+const getHol=(y,m,d)=>HOLIDAYS[`${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`]||null;
+const holidayPay=(wkMins,wdRate)=>{const h=wkMins/60;if(h<15)return 0;return Math.round(Math.min(h/40,1)*8*wdRate);};
+
+/* ─── 월 급여 계산 ──────────────────────────────────────────────── */
+function computeMonth(emp,rec){
+  const{year,month,advance=0}=rec.meta;
+  const wdRate=rec.meta.wdRate||emp.weekdayRate||10030;
+  const weRate=rec.meta.weRate||emp.weekendRate||wdRate;
+  const total=daysInMonth(year,month);
+  const weekMap={},days=[];
+  for(let d=1;d<=total;d++){
+    const dow=dowOf(year,month,d);
+    const rate=isWe(dow)?weRate:wdRate;
+    const dd=rec.days[d]||{};
+    const inT=dd.inTime||"",outT=dd.outTime||"";
+    const brk=t2m(dd.breakTime||"00:00");
+    const wm=workMins(inT,outT);
+    const rm=Math.max(0,wm-brk);
+    const dp=Math.round((rm/60)*rate);
+    const ex=Number(dd.extra||0);
+    const js=new Date(year,month-1,d);
+    const off=js.getDay()===0?-6:1-js.getDay();
+    const mon=new Date(js);mon.setDate(js.getDate()+off);
+    const wk=`${mon.getFullYear()}-${mon.getMonth()+1}-${mon.getDate()}`;
+    weekMap[wk]=(weekMap[wk]||0)+rm;
+    const holName=getHol(year,month,d);
+    const autoHB=(holName&&dow!==0&&rm>0&&ex===0)?Math.round(dp*0.5):0;
+    days.push({d,dow,inT,outT,wm,brk,rm,dp,ex,note:dd.note||"",wk,hp:0,holName,autoHB});
+  }
+  for(const[wk,mins]of Object.entries(weekMap)){
+    const hp=holidayPay(mins,wdRate);if(!hp)continue;
+    const[wy,wm_,wd_]=wk.split("-").map(Number);
+    const sun=new Date(wy,wm_-1,wd_+6);let target=null;
+    if(sun.getFullYear()===year&&sun.getMonth()+1===month)target=sun.getDate();
+    else{for(let i=days.length-1;i>=0;i--){if(days[i].wk===wk){target=days[i].d;break;}}}
+    if(target){const idx=days.findIndex(d=>d.d===target);if(idx>=0)days[idx].hp=hp;}
+  }
+  const sumWm=days.reduce((s,d)=>s+d.wm,0),sumRm=days.reduce((s,d)=>s+d.rm,0);
+  const sumDp=days.reduce((s,d)=>s+d.dp,0),sumHp=days.reduce((s,d)=>s+d.hp,0);
+  const sumEx=days.reduce((s,d)=>s+d.ex,0),sumAutoHB=days.reduce((s,d)=>s+(d.autoHB||0),0);
+  const totalPay=sumDp+sumHp,netPay=totalPay-advance+sumEx+sumAutoHB;
+  return{days,sumWm,sumRm,sumDp,sumHp,sumEx,sumAutoHB,totalPay,advance,netPay,
+    workDays:days.filter(d=>d.rm>0).length,wdRate,weRate};
+}
+
+/* ─── 공통 스타일 ───────────────────────────────────────────────── */
+const card=(x={})=>({background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:20,...x});
+const btn=(bg,color="#fff",x={})=>({padding:"8px 16px",background:bg,color,border:"none",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"inherit",...x});
+const inputSt={padding:"6px 10px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:13,background:"#fff",color:C.text,outline:"none",width:"100%",boxSizing:"border-box",fontFamily:"inherit"};
+
+/* ══════════════════════════════════════════════════════════════════
+   메인 앱
+══════════════════════════════════════════════════════════════════ */
+function App(){
+  /* 인증 */
+  const[loginUser,setLoginUser]=useState(()=>loadSess());
+  const[adminReady,setAdminReady]=useState(null); // null=로딩중
+  /* 데이터 */
+  const[employees,setEmployees]=useState([]);
+  const[records,setRecords]=useState({});
+  const[fbStatus,setFbStatus]=useState("connecting");
+  const[dataLoaded,setDataLoaded]=useState(false);
+  /* UI */
+  const[tab,setTab]=useState("dashboard");
+  const[selEid,setSelEid]=useState(null);
+  const[selY,setSelY]=useState(new Date().getFullYear());
+  const[selM,setSelM]=useState(new Date().getMonth()+1);
+  const[showEmpForm,setShowEmpForm]=useState(false);
+  const[editEmp,setEditEmp]=useState(null);
+  const[printMode,setPrintMode]=useState(false);
+  const[showAdminPw,setShowAdminPw]=useState(false);
+  const pendingRef=useRef({});
+  const saveTimer=useRef(null);
+  const[saveStatus,setSaveStatus]=useState("idle");
+
+  /* Firebase 리스너 */
+  useEffect(()=>{
+    let cnt=0;
+    const done=()=>{if(++cnt>=3)setDataLoaded(true);};
+    const t=setTimeout(()=>setDataLoaded(true),8000);
+    const u1=db.collection("arb_users").onSnapshot(snap=>{
+      setAdminReady(snap.docs.some(d=>d.data().role==="admin"));
+      done();
+    },()=>{setAdminReady(false);done();});
+    const u2=db.collection("arb_employees").onSnapshot(snap=>{
+      setEmployees(snap.docs.map(d=>d.data()).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)));
+      setFbStatus("connected");done();
+    },()=>done());
+    const u3=db.collection("arb_records").onSnapshot(snap=>{
+      setRecords(p=>{const n={...p};snap.docChanges().forEach(c=>{if(c.type==="removed")delete n[c.doc.id];else n[c.doc.id]=c.doc.data();});return n;});
+      done();
+    },()=>done());
+    return()=>{u1();u2();u3();clearTimeout(t);};
+  },[]);
+
+  /* 자동저장 표시 */
+  const showSave=s=>{setSaveStatus(s);clearTimeout(saveTimer.current);if(s==="saved")saveTimer.current=setTimeout(()=>setSaveStatus("idle"),2500);};
+
+  /* 근태 쓰기 */
+  const doUpdateDay=(eid,y,m,d,f,v)=>{
+    if(!eid)return;
+    const k=`${eid}_${y}_${m}`;
+    setRecords(p=>{
+      const old=p[k]||{meta:{year:y,month:m,advance:0},days:{},empId:eid};
+      const nr={...old,empId:eid,days:{...old.days,[d]:{...(old.days[d]||{}),[f]:v}}};
+      if(pendingRef.current[k])clearTimeout(pendingRef.current[k].timer);
+      pendingRef.current[k]={rec:nr,timer:setTimeout(()=>{showSave("saving");db.collection("arb_records").doc(k).set(pendingRef.current[k].rec).then(()=>showSave("saved")).catch(()=>showSave("error"));},1000)};
+      return{...p,[k]:nr};
+    });
+  };
+  const doUpdateMeta=(eid,y,m,f,v)=>{
+    if(!eid)return;
+    const k=`${eid}_${y}_${m}`;
+    setRecords(p=>{
+      const old=p[k]||{meta:{year:y,month:m,advance:0},days:{},empId:eid};
+      const nr={...old,empId:eid,meta:{...old.meta,[f]:v}};
+      if(pendingRef.current[k])clearTimeout(pendingRef.current[k].timer);
+      pendingRef.current[k]={rec:nr,timer:setTimeout(()=>{showSave("saving");db.collection("arb_records").doc(k).set(pendingRef.current[k].rec).then(()=>showSave("saved")).catch(()=>showSave("error"));},1000)};
+      return{...p,[k]:nr};
+    });
+  };
+
+  const rKey=(eid,y,m)=>`${eid}_${y}_${m}`;
+  const getRec=useCallback((eid,y,m)=>records[rKey(eid,y,m)]||{meta:{year:y,month:m,advance:0},days:{}},[records]);
+
+  /* 직원 저장 (사용자 계정도 생성) */
+  const saveEmp=async data=>{
+    const id=data.id||Date.now().toString();
+    const status=data.status||"재직";
+    // 이름 변경 시 기존 사용자 계정 삭제
+    if(data.id){
+      const old=employees.find(e=>e.id===data.id);
+      if(old&&old.name!==data.name)try{await db.collection("arb_users").doc(old.name).delete();}catch(e){}
+    }
+    await db.collection("arb_employees").doc(id).set({...data,id,status,createdAt:data.createdAt||Date.now()});
+    // 비밀번호가 있을 경우 사용자 계정 생성/갱신
+    if(data.empPassword){
+      await db.collection("arb_users").doc(data.name).set({
+        id:data.name,password:data.empPassword,role:"employee",empId:id,name:data.name,updatedAt:Date.now()
+      });
+    }
+    setShowEmpForm(false);setEditEmp(null);
+  };
+
+  /* 직원 삭제 */
+  const delEmp=async emp=>{
+    if(!confirm(`${emp.name} 직원과 모든 근태 기록을 삭제합니다. 계속하시겠습니까?`))return;
+    await db.collection("arb_employees").doc(emp.id).delete();
+    try{await db.collection("arb_users").doc(emp.name).delete();}catch(e){}
+    const keys=Object.keys(records).filter(k=>k.startsWith(emp.id+"_"));
+    if(keys.length>0){const b=db.batch();keys.forEach(k=>b.delete(db.collection("arb_records").doc(k)));await b.commit();}
+    if(selEid===emp.id)setSelEid(null);
+  };
+
+  /* 인증 함수 */
+  const doLogin=async(id,pw)=>{
+    try{
+      const snap=await db.collection("arb_users").doc(id.trim()).get();
+      if(!snap.exists)return"아이디를 찾을 수 없습니다.";
+      const u=snap.data();
+      if(u.password!==pw)return"비밀번호가 틀렸습니다.";
+      const sess={id:u.id,role:u.role,empId:u.empId||null,name:u.name||id};
+      saveSess(sess);setLoginUser(sess);return null;
+    }catch(e){return"오류: "+e.message;}
+  };
+  const doLogout=()=>{clearSess();setLoginUser(null);};
+  const setupAdmin=async pw=>{
+    await db.collection("arb_users").doc("admin").set({id:"admin",password:pw,role:"admin",name:"관리자",createdAt:Date.now()});
+    const sess={id:"admin",role:"admin",name:"관리자"};saveSess(sess);setLoginUser(sess);
+  };
+  const changeAdminPw=async(oldPw,newPw)=>{
+    const snap=await db.collection("arb_users").doc("admin").get();
+    if(!snap.exists||snap.data().password!==oldPw)return"현재 비밀번호가 틀렸습니다.";
+    await db.collection("arb_users").doc("admin").update({password:newPw});
+    return null;
+  };
+
+  /* 대시보드 데이터 */
+  const dashData=useMemo(()=>employees.map(emp=>{
+    const rec=getRec(emp.id,selY,selM);
+    return{emp,stats:computeMonth(emp,rec)};
+  }),[employees,selY,selM,getRec]);
+
+  /* ── 로딩 화면 ── */
+  if(!dataLoaded||adminReady===null)return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:C.sidebar,flexDirection:"column",gap:20}}>
+      <div style={{fontSize:52}}>💼</div>
+      <div style={{color:"#FFF",fontWeight:800,fontSize:22}}>아르바이트 급여 관리</div>
+      <div style={{color:C.sidTxt,fontSize:13}}>연세노블병원</div>
+      <div style={{width:40,height:40,border:"3px solid rgba(255,255,255,0.2)",borderTop:"3px solid #64B5F6",borderRadius:"50%",animation:"spin 1s linear infinite",marginTop:8}}></div>
+      <div style={{color:C.sidTxt,fontSize:12}}>{fbStatus==="error"?"⚠️ Firebase 연결 실패":"☁️ 서버 연결 중..."}</div>
+    </div>
+  );
+
+  /* ── 최초 설정 ── */
+  if(!adminReady)return<SetupPage onSetup={setupAdmin}/>;
+
+  /* ── 로그인 ── */
+  if(!loginUser)return<LoginPage onLogin={doLogin}/>;
+
+  /* ── 인쇄 ── */
+  const selEmp=employees.find(e=>e.id===selEid);
+  const selRec=selEid?getRec(selEid,selY,selM):null;
+  const selStats=selEmp&&selRec?computeMonth(selEmp,selRec):null;
+  if(printMode&&selStats&&selEmp)return<PrintSlip emp={selEmp} stats={selStats} year={selY} month={selM} onClose={()=>setPrintMode(false)}/>;
+
+  /* ── 직원 전용 뷰 ── */
+  if(loginUser.role==="employee"){
+    const now=new Date();
+    const curY=now.getFullYear(),curM=now.getMonth()+1;
+    const empSel=employees.find(e=>e.id===loginUser.empId);
+    const empRec=getRec(loginUser.empId||"",curY,curM);
+    const empStats=empSel?computeMonth(empSel,empRec):null;
+    return<EmployeeView emp={empSel} rec={empRec} stats={empStats} year={curY} month={curM}
+      onDay={(d,f,v)=>doUpdateDay(loginUser.empId,curY,curM,d,f,v)}
+      onMeta={(f,v)=>doUpdateMeta(loginUser.empId,curY,curM,f,v)}
+      onLogout={doLogout} loginUser={loginUser}/>;
+  }
+
+  /* ── 관리자 뷰 ── */
+  const TABS=[
+    {id:"dashboard",icon:"📊",label:"대시보드"},
+    {id:"employees",icon:"👥",label:"직원 관리"},
+    {id:"attendance",icon:"⏰",label:"근태 입력"},
+    {id:"payslip",icon:"📋",label:"급여 명세서"},
+    {id:"annual",icon:"📅",label:"연간 현황"},
+    {id:"import",icon:"📥",label:"엑셀 가져오기"},
+  ];
+  const saveLbl={idle:"",saving:"☁️ 저장 중...",saved:"✅ 저장됨",error:"❌ 저장 실패"};
+  const saveClr={idle:C.sidTxt,saving:"#93C5FD",saved:"#86EFAC",error:"#FCA5A5"};
+  const activeEmps=employees.filter(e=>e.status!=="퇴사");
+
+  return(
+    <div style={{display:"flex",height:"100vh",background:C.bg,fontFamily:"'Noto Sans KR',sans-serif",fontSize:14,color:C.text}}>
+      {/* 사이드바 */}
+      <div id="sidebar" style={{width:192,background:C.sidebar,display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"18px 16px 12px",borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
+          <div style={{color:"#FFF",fontWeight:800,fontSize:15}}>💼 아르바이트</div>
+          <div style={{color:C.sidTxt,fontSize:11,marginTop:3}}>급여 관리 v{VER}</div>
+        </div>
+        <div style={{padding:"8px 16px 6px",borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
+          <div style={{fontSize:11,display:"flex",alignItems:"center",gap:5}}>
+            <span style={{width:7,height:7,borderRadius:"50%",background:fbStatus==="connected"?"#4ADE80":"#FCD34D",display:"inline-block"}}></span>
+            <span style={{color:fbStatus==="connected"?"#4ADE80":"#FCD34D"}}>{fbStatus==="connected"?"Firebase 연결됨":"연결 중..."}</span>
+          </div>
+          {saveStatus!=="idle"&&<div style={{fontSize:11,color:saveClr[saveStatus],marginTop:3}}>{saveLbl[saveStatus]}</div>}
+        </div>
+        <nav style={{flex:1,padding:"6px 0",overflowY:"auto"}}>
+          {TABS.map(t=>(
+            <div key={t.id} onClick={()=>setTab(t.id)} style={{
+              padding:"11px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,
+              color:tab===t.id?"#FFF":C.sidTxt,background:tab===t.id?C.sidebarAct:"transparent",
+              borderLeft:tab===t.id?"3px solid #64B5F6":"3px solid transparent",fontSize:13,userSelect:"none",transition:"all 0.15s",
+            }}>{t.icon} {t.label}</div>
+          ))}
+        </nav>
+        <div style={{padding:"10px 16px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
+          <div style={{color:C.sidTxt,fontSize:11,marginBottom:6}}>관리자: {loginUser.name}</div>
+          <button onClick={()=>setShowAdminPw(true)} style={{...btn("rgba(255,255,255,0.1)","#A8BEDB",{fontSize:11,padding:"4px 10px",width:"100%",marginBottom:4})}}>🔑 비밀번호 변경</button>
+          <button onClick={doLogout} style={{...btn("rgba(255,255,255,0.1)","#A8BEDB",{fontSize:11,padding:"4px 10px",width:"100%"})}}>🚪 로그아웃</button>
+        </div>
+      </div>
+
+      {/* 본문 */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div id="topbar" style={{background:C.header,padding:"10px 20px",display:"flex",alignItems:"center",gap:12,boxShadow:"0 2px 6px rgba(0,0,0,0.15)"}}>
+          <span style={{color:"#FFF",fontWeight:700,fontSize:15}}>{TABS.find(t=>t.id===tab)?.icon} {TABS.find(t=>t.id===tab)?.label}</span>
+          <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <Sel val={selY} onChange={v=>setSelY(+v)} opts={YEARS.map(y=>({v:y,l:`${y}년`}))}/>
+            <Sel val={selM} onChange={v=>setSelM(+v)} opts={MONTHS_KOR.map((l,i)=>({v:i+1,l}))}/>
+            {(tab==="attendance"||tab==="payslip")&&(
+              <Sel val={selEid||""} onChange={v=>setSelEid(v||null)}
+                opts={[{v:"",l:"── 직원 선택 ──"},...activeEmps.map(e=>({v:e.id,l:e.name}))]} wide/>
+            )}
+            {tab==="payslip"&&selStats&&<button onClick={()=>setPrintMode(true)} style={{...btn("#FFF",C.blue,{fontSize:13})}}>🖨️ 인쇄</button>}
+          </div>
+        </div>
+        <div style={{flex:1,overflow:"auto",padding:20}}>
+          {tab==="dashboard"&&<DashboardTab data={dashData} year={selY} month={selM} onSelect={eid=>{setSelEid(eid);setTab("attendance");}}/>}
+          {tab==="employees"&&<EmployeesTab employees={employees} onAdd={()=>{setEditEmp(null);setShowEmpForm(true);}} onEdit={e=>{setEditEmp(e);setShowEmpForm(true);}} onDel={delEmp} onToggle={emp=>db.collection("arb_employees").doc(emp.id).set({...emp,status:emp.status==="퇴사"?"재직":"퇴사"}).then(()=>{if(emp.status!=="퇴사"&&selEid===emp.id)setSelEid(null);})}/>}
+          {tab==="attendance"&&<AttendanceTab emp={selEmp} rec={selRec} stats={selStats} year={selY} month={selM} onDay={(d,f,v)=>doUpdateDay(selEid,selY,selM,d,f,v)} onMeta={(f,v)=>doUpdateMeta(selEid,selY,selM,f,v)}/>}
+          {tab==="payslip"&&<PayslipTab emp={selEmp} stats={selStats} year={selY} month={selM}/>}
+          {tab==="annual"&&<AnnualTab employees={employees} year={selY} records={records} getRec={getRec}/>}
+          {tab==="import"&&<ImportTab employees={employees} records={records} db={db}/>}
+        </div>
+      </div>
+      {showEmpForm&&<EmpModal data={editEmp} employees={employees} onSave={saveEmp} onClose={()=>{setShowEmpForm(false);setEditEmp(null);}}/>}
+      {showAdminPw&&<AdminPwModal onChange={changeAdminPw} onClose={()=>setShowAdminPw(false)}/>}
+    </div>
+  );
+}
+
+/* ─── 직원 전용 뷰 ─────────────────────────────────────────────── */
+function EmployeeView({emp,rec,stats,year,month,onDay,onMeta,onLogout,loginUser}){
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.bg,fontFamily:"'Noto Sans KR',sans-serif"}}>
+      <div style={{background:C.header,padding:"12px 20px",display:"flex",alignItems:"center",boxShadow:"0 2px 6px rgba(0,0,0,0.15)"}}>
+        <div style={{color:"#FFF"}}>
+          <div style={{fontWeight:700,fontSize:16}}>💼 {loginUser.name} 님의 근태 입력</div>
+          <div style={{fontSize:12,opacity:.8,marginTop:2}}>{year}년 {month}월 | 연세노블병원</div>
+        </div>
+        <button onClick={onLogout} style={{...btn("rgba(255,255,255,0.15)","#FFF",{marginLeft:"auto",fontSize:13})}}>🚪 로그아웃</button>
+      </div>
+      <div style={{flex:1,overflow:"auto",padding:20}}>
+        {!emp?(
+          <div style={{...card({textAlign:"center",padding:"60px 0"}),color:C.mid}}>
+            <div style={{fontSize:40,marginBottom:12}}>⚠️</div>
+            <div style={{fontWeight:600}}>직원 계정이 연결되지 않았습니다.<br/>관리자에게 문의해 주세요.</div>
+          </div>
+        ):(
+          <AttendanceTab emp={emp} rec={rec} stats={stats} year={year} month={month} onDay={onDay} onMeta={onMeta}/>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── 로그인 페이지 ─────────────────────────────────────────────── */
+function LoginPage({onLogin}){
+  const[id,setId]=useState("");
+  const[pw,setPw]=useState("");
+  const[err,setErr]=useState("");
+  const[loading,setLoading]=useState(false);
+  const handle=async()=>{
+    if(!id.trim()||!pw.trim()){setErr("아이디와 비밀번호를 입력하세요.");return;}
+    setLoading(true);setErr("");
+    const e=await onLogin(id.trim(),pw.trim());
+    if(e)setErr(e);
+    setLoading(false);
+  };
+  return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:C.sidebar,fontFamily:"'Noto Sans KR',sans-serif"}}>
+      <div style={{background:C.card,borderRadius:16,padding:40,width:380,boxShadow:"0 24px 80px rgba(0,0,0,0.4)",animation:"fadeIn .35s ease"}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{fontSize:52,marginBottom:12}}>💼</div>
+          <div style={{fontWeight:800,fontSize:20,color:C.text}}>아르바이트 급여 관리</div>
+          <div style={{color:C.mid,fontSize:13,marginTop:4}}>연세노블병원</div>
+        </div>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:12,color:C.mid,marginBottom:5,fontWeight:600}}>아이디</div>
+          <input value={id} onChange={e=>setId(e.target.value)} placeholder="아이디 입력" style={inputSt} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        </div>
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:12,color:C.mid,marginBottom:5,fontWeight:600}}>비밀번호</div>
+          <input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="비밀번호 입력" style={inputSt} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        </div>
+        {err&&<div style={{color:C.red,fontSize:13,marginBottom:14,textAlign:"center"}}>⚠️ {err}</div>}
+        <button onClick={handle} disabled={loading} style={{...btn(C.blue,void 0,{width:"100%",padding:"12px",fontSize:15,fontWeight:700,opacity:loading?.6:1})}}>
+          {loading?"로그인 중...":"로그인"}
+        </button>
+        <div style={{marginTop:16,fontSize:11,color:C.light,textAlign:"center"}}>
+          관리자: admin / 직원: 직원이름으로 로그인
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── 최초 관리자 설정 ──────────────────────────────────────────── */
+function SetupPage({onSetup}){
+  const[pw,setPw]=useState("");
+  const[pw2,setPw2]=useState("");
+  const[err,setErr]=useState("");
+  const[loading,setLoading]=useState(false);
+  const handle=async()=>{
+    if(pw.length<4){setErr("비밀번호는 4자 이상이어야 합니다.");return;}
+    if(pw!==pw2){setErr("비밀번호가 일치하지 않습니다.");return;}
+    setLoading(true);setErr("");
+    try{
+      await onSetup(pw);
+    }catch(e){
+      setErr("저장 실패: "+e.message+" → Firebase Firestore Rules에 arb_users 규칙을 추가해 주세요.");
+      setLoading(false);
+    }
+  };
+  return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:C.sidebar,fontFamily:"'Noto Sans KR',sans-serif"}}>
+      <div style={{background:C.card,borderRadius:16,padding:40,width:400,boxShadow:"0 24px 80px rgba(0,0,0,0.4)"}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontSize:48,marginBottom:10}}>🔐</div>
+          <div style={{fontWeight:800,fontSize:19,color:C.text}}>관리자 계정 초기 설정</div>
+          <div style={{color:C.mid,fontSize:13,marginTop:4}}>처음 실행 시 관리자 비밀번호를 설정합니다</div>
+        </div>
+        {[{v:pw,s:setPw,pl:"관리자 비밀번호 설정"},{v:pw2,s:setPw2,pl:"비밀번호 확인"}].map((r,i)=>(
+          <div key={i} style={{marginBottom:14}}>
+            <input type="password" value={r.v} onChange={e=>r.s(e.target.value)} placeholder={r.pl} style={inputSt}/>
+          </div>
+        ))}
+        {err&&<div style={{color:C.red,fontSize:13,marginBottom:12,textAlign:"center"}}>⚠️ {err}</div>}
+        <div style={{fontSize:11,color:C.mid,marginBottom:16,textAlign:"center"}}>※ 관리자 아이디: admin (고정)</div>
+        <button onClick={handle} disabled={loading} style={{...btn(C.blue,void 0,{width:"100%",padding:"12px",fontSize:15,fontWeight:700,opacity:loading?.6:1})}}>
+          {loading?"저장 중...":"설정 완료"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── 관리자 비밀번호 변경 모달 ─────────────────────────────────── */
+function AdminPwModal({onChange,onClose}){
+  const[oldPw,setOldPw]=useState("");
+  const[newPw,setNewPw]=useState("");
+  const[newPw2,setNewPw2]=useState("");
+  const[err,setErr]=useState("");
+  const[done,setDone]=useState(false);
+  const handle=async()=>{
+    if(newPw.length<4){setErr("새 비밀번호는 4자 이상이어야 합니다.");return;}
+    if(newPw!==newPw2){setErr("새 비밀번호가 일치하지 않습니다.");return;}
+    const e=await onChange(oldPw,newPw);
+    if(e)setErr(e);else setDone(true);
+  };
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}>
+      <div style={{background:C.card,borderRadius:14,padding:30,width:380,boxShadow:"0 24px 80px rgba(0,0,0,0.3)"}}>
+        <div style={{fontWeight:800,fontSize:17,marginBottom:20}}>🔑 관리자 비밀번호 변경</div>
+        {done?(
+          <div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:40,marginBottom:10}}>✅</div>
+            <div style={{fontWeight:600}}>비밀번호가 변경됐습니다.</div>
+            <button onClick={onClose} style={{...btn(C.blue,void 0,{marginTop:16})}}>확인</button>
+          </div>
+        ):(
+          <>
+            {[{v:oldPw,s:setOldPw,pl:"현재 비밀번호"},{v:newPw,s:setNewPw,pl:"새 비밀번호"},{v:newPw2,s:setNewPw2,pl:"새 비밀번호 확인"}].map((r,i)=>(
+              <div key={i} style={{marginBottom:14}}>
+                <input type="password" value={r.v} onChange={e=>r.s(e.target.value)} placeholder={r.pl} style={inputSt}/>
+              </div>
+            ))}
+            {err&&<div style={{color:C.red,fontSize:12,marginBottom:12}}>⚠️ {err}</div>}
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:4}}>
+              <button onClick={onClose} style={btn(C.bg,C.mid)}>취소</button>
+              <button onClick={handle} style={btn(C.blue)}>변경</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── 공통 Select ───────────────────────────────────────────────── */
+function Sel({val,onChange,opts,wide}){
+  return(
+    <select value={val} onChange={e=>onChange(e.target.value)} style={{
+      padding:"5px 8px",borderRadius:5,border:"none",fontSize:13,
+      background:"rgba(255,255,255,0.15)",color:"#FFF",cursor:"pointer",fontFamily:"inherit",
+      ...(wide?{minWidth:130}:{}),
+    }}>
+      {opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+    </select>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   대시보드
+══════════════════════════════════════════════════════════════════ */
+function DashboardTab({data,year,month,onSelect}){
+  const totalNet=data.reduce((s,d)=>s+(d.stats?.netPay||0),0);
+  const totalWork=data.reduce((s,d)=>s+(d.stats?.workDays||0),0);
+  const totalHp=data.reduce((s,d)=>s+(d.stats?.sumHp||0),0);
+  return(
+    <div style={{animation:"fadeIn .3s ease"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20}}>
+        {[
+          {l:"등록 직원 수",v:`${data.length}명`,icon:"👥",c:C.blue},
+          {l:"이번달 실지급 합계",v:`${won(totalNet)}원`,icon:"💰",c:C.green},
+          {l:"총 근무일수",v:`${totalWork}일`,icon:"📆",c:C.orange},
+          {l:"주휴수당 합계",v:`${won(totalHp)}원`,icon:"🏖️",c:"#7C3AED"},
+        ].map((it,i)=>(
+          <div key={i} style={{...card({padding:16}),borderLeft:`4px solid ${it.c}`}}>
+            <div style={{fontSize:22,marginBottom:6}}>{it.icon}</div>
+            <div style={{fontSize:11,color:C.mid,marginBottom:4}}>{it.l}</div>
+            <div style={{fontWeight:700,fontSize:15,color:it.c}}>{it.v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={card()}>
+        <div style={{fontWeight:700,marginBottom:16,fontSize:15}}>📋 {year}년 {month}월 급여 현황</div>
+        {data.length===0?(
+          <div style={{textAlign:"center",padding:"50px 0",color:C.mid}}>등록된 직원이 없습니다.</div>
+        ):(
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead>
+                <tr style={{background:C.bg}}>
+                  {["상태","성명","근무일","실근무시간","일급여","주휴수당","추가수당","가불금","실지급액",""].map((h,i)=>(
+                    <th key={i} style={{padding:"9px 10px",textAlign:i>=2&&i<=8?"right":"left",fontWeight:600,color:C.mid,borderBottom:`1px solid ${C.border}`,fontSize:12}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.map(({emp,stats},i)=>{
+                  const isRet=emp.status==="퇴사";
+                  return(
+                    <tr key={emp.id} style={{background:i%2===0?C.card:C.rowAlt,cursor:"pointer",opacity:isRet?.6:1}}
+                      onClick={()=>onSelect(emp.id)}
+                      onMouseOver={e=>e.currentTarget.style.background="#EEF4FF"}
+                      onMouseOut={e=>e.currentTarget.style.background=i%2===0?C.card:C.rowAlt}>
+                      <td style={{padding:"10px"}}>
+                        <span style={{fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700,
+                          background:isRet?"#E5E7EB":"#DCFCE7",color:isRet?C.light:C.green}}>{isRet?"퇴사":"재직"}</span>
+                      </td>
+                      <td style={{padding:"10px",fontWeight:600}}>{emp.name}</td>
+                      <td style={{padding:"10px",textAlign:"right",color:C.mid}}>{stats?.workDays||0}일</td>
+                      <td style={{padding:"10px",textAlign:"right",color:C.mid}}>{m2t(stats?.sumRm||0)}</td>
+                      <td style={{padding:"10px",textAlign:"right"}}>{won(stats?.sumDp)}원</td>
+                      <td style={{padding:"10px",textAlign:"right",color:C.orange}}>{won(stats?.sumHp)}원</td>
+                      <td style={{padding:"10px",textAlign:"right",color:C.green}}>{won(stats?.sumEx)}원</td>
+                      <td style={{padding:"10px",textAlign:"right",color:C.red}}>{stats?.advance?`-${won(stats.advance)}원`:"-"}</td>
+                      <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.blue,fontSize:14}}>{won(stats?.netPay)}원</td>
+                      <td style={{padding:"10px",fontSize:11,color:C.blue}}>근태→</td>
+                    </tr>
+                  );
+                })}
+                <tr style={{background:"#EEF4FF",fontWeight:700}}>
+                  <td colSpan={8} style={{padding:"10px",textAlign:"right",fontSize:12,color:C.mid}}>합 계</td>
+                  <td style={{padding:"10px",textAlign:"right",color:C.blue,fontSize:15}}>{won(totalNet)}원</td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   직원 관리
+══════════════════════════════════════════════════════════════════ */
+function EmployeesTab({employees,onAdd,onEdit,onDel,onToggle}){
+  const sorted=[...employees].sort((a,b)=>{const sa=a.status==="퇴사"?1:0,sb=b.status==="퇴사"?1:0;return sa-sb||(a.createdAt||0)-(b.createdAt||0);});
+  const active=sorted.filter(e=>e.status!=="퇴사").length;
+  const retired=sorted.filter(e=>e.status==="퇴사").length;
+  return(
+    <div style={{...card(),animation:"fadeIn .3s ease"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+        <div style={{fontWeight:700,fontSize:15}}>
+          👥 직원 목록
+          <span style={{marginLeft:10,fontSize:13,fontWeight:400}}>
+            <span style={{color:C.green,fontWeight:600}}>재직 {active}명</span>
+            {retired>0&&<span style={{color:C.light,marginLeft:8}}>퇴사 {retired}명</span>}
+          </span>
+        </div>
+        <button onClick={onAdd} style={btn(C.blue)}>＋ 직원 추가</button>
+      </div>
+      {sorted.length===0?(
+        <div style={{textAlign:"center",padding:"50px 0",color:C.mid}}>등록된 직원이 없습니다.</div>
+      ):(
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead>
+              <tr style={{background:C.bg}}>
+                {["상태","성명(로그인ID)","연락처","은행명","계좌번호","평일시급","주말시급","로그인","관리"].map((h,i)=>(
+                  <th key={i} style={{padding:"10px 12px",textAlign:"left",fontWeight:600,color:C.mid,borderBottom:`1px solid ${C.border}`,fontSize:12}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((e,i)=>{
+                const isRet=e.status==="퇴사";
+                const bg=isRet?"#F9FAFB":(i%2===0?C.card:C.rowAlt);
+                return(
+                  <tr key={e.id} style={{background:bg,opacity:isRet?.7:1}}>
+                    <td style={{padding:"11px 12px"}}>
+                      <button onClick={()=>onToggle(e)} style={{padding:"4px 12px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"inherit",background:isRet?"#E5E7EB":"#DCFCE7",color:isRet?C.light:C.green}}>
+                        {isRet?"퇴사":"재직"}
+                      </button>
+                    </td>
+                    <td style={{padding:"11px 12px",fontWeight:700,color:isRet?C.light:C.text}}>
+                      {e.name}
+                      <span style={{marginLeft:6,fontSize:10,color:C.light,fontWeight:400}}>ID</span>
+                    </td>
+                    <td style={{padding:"11px 12px",color:C.mid}}>{e.phone||"-"}</td>
+                    <td style={{padding:"11px 12px"}}>{e.bank||"-"}</td>
+                    <td style={{padding:"11px 12px",color:C.mid,fontSize:12}}>{e.account||"-"}</td>
+                    <td style={{padding:"11px 12px",textAlign:"right"}}>{won(e.weekdayRate)}원</td>
+                    <td style={{padding:"11px 12px",textAlign:"right"}}>{won(e.weekendRate)}원</td>
+                    <td style={{padding:"11px 12px"}}>
+                      <span style={{fontSize:11,color:e.empPassword||e._hasPw?C.green:C.light}}>
+                        {e.empPassword||e._hasPw?"✅ 설정됨":"⚠️ 미설정"}
+                      </span>
+                    </td>
+                    <td style={{padding:"11px 12px"}}>
+                      <div style={{display:"flex",gap:6}}>
+                        <button onClick={()=>onEdit(e)} style={btn("#EEF4FF",C.blue,{padding:"5px 12px",fontSize:12})}>수정</button>
+                        <button onClick={()=>onDel(e)} style={btn("#FFF0F0",C.red,{padding:"5px 12px",fontSize:12})}>삭제</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── 직원 등록/수정 모달 ───────────────────────────────────────── */
+function EmpModal({data,employees,onSave,onClose}){
+  const isEdit=!!data?.id;
+  const[f,setF]=useState({name:"",phone:"",bank:"",account:"",weekdayRate:10030,weekendRate:10030,status:"재직",empPassword:"",...(data||{})});
+  const up=(k,v)=>setF(p=>({...p,[k]:v}));
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}>
+      <div style={{background:C.card,borderRadius:14,width:480,padding:30,boxShadow:"0 24px 80px rgba(0,0,0,0.3)",animation:"fadeIn .25s ease",maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{fontWeight:800,fontSize:18,marginBottom:22}}>{isEdit?"✏️ 직원 정보 수정":"➕ 신규 직원 등록"}</div>
+        {[{k:"name",l:"성명 * (= 로그인 아이디)",ph:"홍길동"},{k:"phone",l:"연락처",ph:"010-0000-0000"},{k:"bank",l:"은행명",ph:"국민은행"},{k:"account",l:"계좌번호",ph:"000000-00-000000"}].map(r=>(
+          <div key={r.k} style={{marginBottom:14}}>
+            <div style={{fontSize:12,color:C.mid,marginBottom:5,fontWeight:600}}>{r.l}</div>
+            <input value={f[r.k]||""} onChange={e=>up(r.k,e.target.value)} placeholder={r.ph} style={inputSt}/>
+          </div>
+        ))}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+          {[{k:"weekdayRate",l:"평일 시급 (원)"},{k:"weekendRate",l:"주말 시급 (원)"}].map(r=>(
+            <div key={r.k}>
+              <div style={{fontSize:12,color:C.mid,marginBottom:5,fontWeight:600}}>{r.l}</div>
+              <input type="number" value={f[r.k]||""} onChange={e=>up(r.k,Number(e.target.value))} style={inputSt}/>
+            </div>
+          ))}
+        </div>
+        {/* 로그인 비밀번호 */}
+        <div style={{background:"#F0F5FF",borderRadius:8,padding:14,marginBottom:14}}>
+          <div style={{fontSize:12,color:C.blue,fontWeight:700,marginBottom:8}}>🔑 직원 로그인 비밀번호</div>
+          <input type="password" value={f.empPassword||""} onChange={e=>up("empPassword",e.target.value)}
+            placeholder={isEdit?"새 비밀번호 (변경 시에만 입력)":"비밀번호 설정 *"} style={inputSt}/>
+          <div style={{fontSize:11,color:C.mid,marginTop:6}}>
+            {isEdit?"비워두면 기존 비밀번호 유지":"※ 직원이름이 로그인 아이디, 이 비밀번호로 로그인합니다"}
+          </div>
+        </div>
+        {/* 재직 상태 */}
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:12,color:C.mid,marginBottom:8,fontWeight:600}}>재직 상태</div>
+          <div style={{display:"flex",gap:10}}>
+            {["재직","퇴사"].map(s=>(
+              <button key={s} onClick={()=>up("status",s)} style={{
+                flex:1,padding:"10px",borderRadius:8,border:`2px solid ${f.status===s?(s==="재직"?C.green:C.red):C.border}`,
+                background:f.status===s?(s==="재직"?"#DCFCE7":"#FEE2E2"):"#fff",
+                color:f.status===s?(s==="재직"?C.green:C.red):C.mid,
+                fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",
+              }}>{s==="재직"?"✅ 재직":"🚫 퇴사"}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{fontSize:11,color:C.mid,marginBottom:20}}>※ 2026년 최저임금: 10,030원/시간</div>
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+          <button onClick={onClose} style={btn(C.bg,C.mid)}>취소</button>
+          <button onClick={()=>{if(!f.name.trim()){alert("성명을 입력하세요.");return;} if(!isEdit&&!f.empPassword){alert("로그인 비밀번호를 설정해 주세요.");return;} onSave(f);}} style={btn(C.blue)}>
+            {isEdit?"저장":"등록"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   근태 입력
+══════════════════════════════════════════════════════════════════ */
+function AttendanceTab({emp,rec,stats,year,month,onDay,onMeta}){
+  if(!emp)return(
+    <div style={{...card({textAlign:"center",padding:"70px 0"}),color:C.mid,animation:"fadeIn .3s ease"}}>
+      <div style={{fontSize:40,marginBottom:12}}>⏰</div>
+      <div style={{fontSize:15,fontWeight:600}}>헤더에서 직원을 선택해 주세요</div>
+      <div style={{fontSize:13,color:C.light,marginTop:6}}>재직 중인 직원만 목록에 표시됩니다</div>
+    </div>
+  );
+  if(emp.status==="퇴사")return(
+    <div style={{...card({textAlign:"center",padding:"70px 0"}),animation:"fadeIn .3s ease"}}>
+      <div style={{fontSize:50,marginBottom:16}}>🚫</div>
+      <div style={{fontWeight:700,fontSize:18,color:C.red,marginBottom:8}}>{emp.name} — 퇴사 처리된 직원입니다</div>
+      <div style={{color:C.mid,fontSize:13}}>근태 입력은 재직 중인 직원만 가능합니다.<br/>[직원 관리] 탭에서 상태 뱃지를 클릭해 변경하세요.</div>
+    </div>
+  );
+  const days=stats?.days||[],advance=rec?.meta?.advance||0;
+  const thSt={padding:"8px 6px",fontWeight:600,color:"#FFF",fontSize:11,textAlign:"center",background:C.blue,position:"sticky",top:0,whiteSpace:"nowrap"};
+  const tdSt=(x={})=>({padding:"4px 5px",textAlign:"center",borderBottom:`1px solid ${C.border}`,...x});
+  const ci={border:`1px solid ${C.border}`,borderRadius:4,padding:"4px 5px",fontSize:12,textAlign:"center",background:"#fff",outline:"none",fontFamily:"inherit",width:"100%"};
+  return(
+    <div style={{animation:"fadeIn .3s ease"}}>
+      <div style={{...card({padding:"14px 18px",marginBottom:14}),display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:16,color:C.blue}}>{emp.name}</div>
+          <div style={{fontSize:12,color:C.mid,marginTop:2}}>{emp.phone} | {emp.bank} {emp.account}</div>
+        </div>
+        <div style={{marginLeft:"auto",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontSize:13,color:C.mid,fontWeight:600}}>이달 시급</span>
+          <input type="number" value={rec?.meta?.wdRate||emp.weekdayRate||10030}
+            onChange={e=>onMeta("wdRate",Number(e.target.value))} style={{...ci,width:90,fontSize:13,padding:"5px 8px"}}/>
+          <span style={{fontSize:12,color:C.mid}}>원(평일)</span>
+          <input type="number" value={rec?.meta?.weRate||emp.weekendRate||10030}
+            onChange={e=>onMeta("weRate",Number(e.target.value))} style={{...ci,width:90,fontSize:13,padding:"5px 8px"}}/>
+          <span style={{fontSize:12,color:C.mid}}>원(주말) | 가불금</span>
+          <input type="number" value={advance||""} onChange={e=>onMeta("advance",Number(e.target.value)||0)}
+            style={{...ci,width:100,fontSize:13,padding:"5px 8px"}} placeholder="0"/>
+          <span style={{fontSize:12,color:C.mid}}>원</span>
+        </div>
+      </div>
+      {stats&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8,marginBottom:14}}>
+          {[
+            {l:"총 근무일",v:`${stats.workDays}일`,c:C.text},
+            {l:"실근무시간",v:m2t(stats.sumRm),c:C.blue},
+            {l:"일급여",v:`${won(stats.sumDp)}원`,c:C.text},
+            {l:"주휴수당",v:`${won(stats.sumHp)}원`,c:C.orange},
+            {l:"🎌공휴일수당",v:`${won(stats.sumAutoHB)}원`,c:"#D97706"},
+            {l:"추가수당",v:`${won(stats.sumEx)}원`,c:C.green},
+            {l:"실지급액",v:`${won(stats.netPay)}원`,c:C.blue,bold:true},
+          ].map((it,i)=>(
+            <div key={i} style={{...card({padding:"8px 10px"}),textAlign:"center"}}>
+              <div style={{fontSize:10,color:C.mid,marginBottom:3}}>{it.l}</div>
+              <div style={{fontWeight:it.bold?800:600,fontSize:it.bold?14:12,color:it.c}}>{it.v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={card({padding:0,overflow:"hidden"})}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:900}}>
+            <thead>
+              <tr>{["일자","요일","출근","퇴근","휴게","실근무","일급여","주휴수당","🎌공휴일","추가수당","비고"].map((h,i)=>(<th key={i} style={thSt}>{h}</th>))}</tr>
+            </thead>
+            <tbody>
+              {days.map(day=>{
+                const isSun=day.dow===0,isSat=day.dow===6;
+                const isHol=!!day.holName&&!isSun;
+                const bg=isHol?"#FFFBEB":isSun?C.rowSun:isSat?C.rowSat:day.d%2===0?C.rowAlt:C.card;
+                return(
+                  <tr key={day.d} style={{background:bg}}>
+                    <td style={tdSt({fontWeight:600})}>
+                      {month}/{day.d}
+                      {isHol&&<span style={{marginLeft:3,fontSize:9,background:"#F59E0B",color:"#fff",borderRadius:8,padding:"1px 4px"}}>{day.holName}</span>}
+                    </td>
+                    <td style={tdSt({color:isSun?C.red:isSat?C.blue:isHol?"#D97706":C.text,fontWeight:700})}>{DOW[day.dow]}</td>
+                    <td style={tdSt()}><input type="time" value={day.inT||""} onChange={e=>onDay(day.d,"inTime",e.target.value)} style={ci}/></td>
+                    <td style={tdSt()}><input type="time" value={day.outT||""} onChange={e=>onDay(day.d,"outTime",e.target.value)} style={ci}/></td>
+                    <td style={tdSt()}><input type="time" value={rec?.days?.[day.d]?.breakTime||""} onChange={e=>onDay(day.d,"breakTime",e.target.value)} style={ci}/></td>
+                    <td style={tdSt({color:day.rm>0?C.blue:C.light,fontWeight:day.rm>0?700:400})}>{day.rm>0?m2t(day.rm):"-"}</td>
+                    <td style={tdSt({textAlign:"right",paddingRight:8,color:day.dp>0?C.text:C.light})}>{day.dp>0?won(day.dp):"-"}</td>
+                    <td style={tdSt({textAlign:"right",paddingRight:8,color:day.hp>0?C.orange:C.light,fontWeight:day.hp>0?700:400})}>{day.hp>0?won(day.hp):"-"}</td>
+                    <td style={tdSt({textAlign:"right",paddingRight:8,color:day.autoHB>0?"#D97706":C.light,fontWeight:day.autoHB>0?700:400})}>{day.autoHB>0?`🎌 ${won(day.autoHB)}`:"-"}</td>
+                    <td style={tdSt()}><input type="number" value={day.ex||""} onChange={e=>onDay(day.d,"extra",Number(e.target.value)||0)} style={{...ci,width:80,background:day.ex>0?"#F0FFF4":"#fff"}} placeholder="0"/></td>
+                    <td style={tdSt()}><input value={day.note||""} onChange={e=>onDay(day.d,"note",e.target.value)} style={{...ci,width:"100%"}}/></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{background:"#EEF4FF",fontWeight:700}}>
+                <td colSpan={5} style={{padding:"10px",textAlign:"right",fontSize:12,color:C.mid}}>합 계</td>
+                <td style={{padding:"10px",textAlign:"center",color:C.blue}}>{m2t(stats?.sumRm||0)}</td>
+                <td style={{padding:"10px",textAlign:"right",paddingRight:8}}>{won(stats?.sumDp)}원</td>
+                <td style={{padding:"10px",textAlign:"right",paddingRight:8,color:C.orange}}>{won(stats?.sumHp)}원</td>
+                <td style={{padding:"10px",textAlign:"right",paddingRight:8,color:"#D97706"}}>{stats?.sumAutoHB>0?`🎌 ${won(stats.sumAutoHB)}원`:"-"}</td>
+                <td style={{padding:"10px",textAlign:"right",paddingRight:8,color:C.green}}>{won(stats?.sumEx)}원</td>
+                <td style={{padding:"10px",textAlign:"center",color:C.blue,fontWeight:800,fontSize:14}}>{won(stats?.netPay)}원</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   급여 명세서 (팀장으로 변경)
+══════════════════════════════════════════════════════════════════ */
+function PayslipTab({emp,stats,year,month}){
+  if(!emp||!stats)return(
+    <div style={{...card({textAlign:"center",padding:"70px 0"}),color:C.mid,animation:"fadeIn .3s ease"}}>
+      <div style={{fontSize:40,marginBottom:12}}>📋</div>
+      <div style={{fontSize:15,fontWeight:600}}>헤더에서 직원을 선택해 주세요</div>
+    </div>
+  );
+  return(
+    <div style={{maxWidth:700,margin:"0 auto",animation:"fadeIn .3s ease"}}>
+      <div style={card()}>
+        <div style={{textAlign:"center",marginBottom:24,paddingBottom:16,borderBottom:`2px solid ${C.blue}`}}>
+          <div style={{fontSize:22,fontWeight:800,color:C.blue}}>{year}년 {month}월 아르바이트 급여계산표</div>
+          <div style={{color:C.mid,fontSize:12,marginTop:4}}>연세노블병원</div>
+        </div>
+        <div style={{border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",marginBottom:20}}>
+          {[[["성 명",emp.name],["연락처",emp.phone||"-"]],[["은행명",emp.bank||"-"],["계좌번호",emp.account||"-"]],
+            [["근무기간",`${year}-${String(month).padStart(2,"0")}-01 ~ ${year}-${String(month).padStart(2,"0")}-${String(daysInMonth(year,month)).padStart(2,"0")}`],
+             ["시  급",`평일 ${won(stats.wdRate)}원 / 주말 ${won(stats.weRate)}원`]]].map((row,ri)=>(
+            <div key={ri} style={{display:"grid",gridTemplateColumns:"1fr 1fr",borderBottom:ri<2?`1px solid ${C.border}`:"none"}}>
+              {row.map(([k,v],ci)=>(
+                <div key={ci} style={{display:"flex",borderRight:ci===0?`1px solid ${C.border}`:"none"}}>
+                  <div style={{padding:"9px 12px",background:C.bg,fontWeight:600,fontSize:12,color:C.mid,minWidth:75,borderRight:`1px solid ${C.border}`}}>{k}</div>
+                  <div style={{padding:"9px 12px",fontSize:13}}>{v}</div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div style={{background:C.bg,borderRadius:8,padding:18,marginBottom:20}}>
+          <div style={{fontWeight:700,marginBottom:12,color:C.mid,fontSize:12}}>▪ 급여 산출 내역</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+            {[
+              {l:"총 근무일수",v:`${stats.workDays}일`},
+              {l:"총 실근무시간",v:m2t(stats.sumRm)},
+              {l:"일급여 합계",v:`${won(stats.sumDp)}원`},
+              {l:"주휴수당",v:`${won(stats.sumHp)}원`,c:C.orange},
+              {l:"🎌 공휴일수당(1.5배)",v:`${won(stats.sumAutoHB)}원`,c:"#D97706"},
+              {l:"추가수당",v:`${won(stats.sumEx)}원`,c:C.green},
+              {l:"가불금",v:`-${won(stats.advance)}원`,c:C.red},
+            ].map((it,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 4px",borderBottom:`1px solid ${C.border}`}}>
+                <span style={{color:C.mid,fontSize:13}}>{it.l}</span>
+                <span style={{fontWeight:600,color:it.c||C.text,fontSize:13}}>{it.v}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",padding:"14px 4px 2px",marginTop:4,borderTop:`2px solid ${C.border}`}}>
+            <span style={{fontWeight:700,fontSize:16}}>실지급액</span>
+            <span style={{fontWeight:800,fontSize:24,color:C.blue}}>{won(stats.netPay)}원</span>
+          </div>
+        </div>
+        <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:C.mid}}>▪ 일별 근무 내역</div>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead>
+            <tr style={{background:C.blue}}>
+              {["일자","요일","출근","퇴근","실근무","일급여","주휴수당","추가수당","비고"].map((h,i)=>(
+                <th key={i} style={{padding:"8px",color:"#FFF",fontWeight:600,textAlign:"center"}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {stats.days.filter(d=>d.rm>0||d.hp>0||d.ex>0||d.autoHB>0).map(d=>{
+              const isSun=d.dow===0,isSat=d.dow===6;
+              return(
+                <tr key={d.d} style={{background:isSun?C.rowSun:isSat?C.rowSat:d.d%2===0?C.rowAlt:C.card}}>
+                  <td style={{padding:"7px 8px",textAlign:"center"}}>{month}/{d.d}</td>
+                  <td style={{padding:"7px 8px",textAlign:"center",color:isSun?C.red:isSat?C.blue:C.text,fontWeight:700}}>{DOW[d.dow]}</td>
+                  <td style={{padding:"7px 8px",textAlign:"center"}}>{d.inT||"-"}</td>
+                  <td style={{padding:"7px 8px",textAlign:"center"}}>{d.outT||"-"}</td>
+                  <td style={{padding:"7px 8px",textAlign:"center",fontWeight:600}}>{d.rm>0?m2t(d.rm):"-"}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right"}}>{d.dp>0?won(d.dp):"-"}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:C.orange}}>{(d.hp+d.autoHB)>0?won(d.hp+d.autoHB):"-"}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:C.green}}>{d.ex>0?won(d.ex):"-"}</td>
+                  <td style={{padding:"7px 8px",fontSize:11,color:C.mid}}>{d.holName||d.note||""}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {/* 확인란 - 사장 → 팀장 */}
+        <div style={{display:"flex",justifyContent:"flex-end",gap:50,marginTop:30,paddingTop:20,borderTop:`1px solid ${C.border}`}}>
+          {["팀 장","확 인"].map(l=>(
+            <div key={l} style={{textAlign:"center"}}>
+              <div style={{fontSize:13,color:C.mid,marginBottom:8,fontWeight:600}}>{l}</div>
+              <div style={{width:90,height:55,border:`1px solid ${C.border}`,borderRadius:6}}></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   연간 현황
+══════════════════════════════════════════════════════════════════ */
+function AnnualTab({employees,year,records,getRec}){
+  const data=useMemo(()=>employees.map(emp=>{
+    const months=MONTHS_KOR.map((_,mi)=>computeMonth(emp,getRec(emp.id,year,mi+1)));
+    return{emp,months,totalNet:months.reduce((s,m)=>s+m.netPay,0)};
+  }),[employees,year,records,getRec]);
+  const grand=data.reduce((s,d)=>s+d.totalNet,0);
+  return(
+    <div style={{...card({padding:0,overflow:"hidden"}),animation:"fadeIn .3s ease"}}>
+      <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,fontWeight:700,fontSize:15}}>📅 {year}년 연간 실지급액 현황</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:1100}}>
+          <thead>
+            <tr style={{background:C.blue}}>
+              <th style={{padding:"10px 14px",color:"#FFF",textAlign:"left",position:"sticky",left:0,background:C.blue,fontWeight:700}}>성명</th>
+              {MONTHS_KOR.map((m,i)=><th key={i} style={{padding:"10px 8px",color:"#FFF",textAlign:"right",fontWeight:600,whiteSpace:"nowrap"}}>{m}</th>)}
+              <th style={{padding:"10px 14px",color:"#FFF",textAlign:"right",fontWeight:700,background:"#0F3A80"}}>연간 합계</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map(({emp,months,totalNet},i)=>(
+              <tr key={emp.id} style={{background:i%2===0?C.card:C.rowAlt}}>
+                <td style={{padding:"10px 14px",fontWeight:700,position:"sticky",left:0,background:i%2===0?C.card:C.rowAlt,borderRight:`1px solid ${C.border}`}}>{emp.name}</td>
+                {months.map((ms,mi)=><td key={mi} style={{padding:"10px 8px",textAlign:"right",color:ms.netPay>0?C.text:C.light}}>{ms.netPay>0?won(ms.netPay):"-"}</td>)}
+                <td style={{padding:"10px 14px",textAlign:"right",fontWeight:700,color:C.blue}}>{won(totalNet)}</td>
+              </tr>
+            ))}
+            <tr style={{background:"#EEF4FF",fontWeight:700}}>
+              <td style={{padding:"10px 14px",position:"sticky",left:0,background:"#EEF4FF",borderRight:`1px solid ${C.border}`}}>월별 합계</td>
+              {MONTHS_KOR.map((_,mi)=>{
+                const t=data.reduce((s,{emp})=>s+computeMonth(emp,getRec(emp.id,year,mi+1)).netPay,0);
+                return<td key={mi} style={{padding:"10px 8px",textAlign:"right",color:t>0?C.blue:C.light}}>{t>0?won(t):"-"}</td>;
+              })}
+              <td style={{padding:"10px 14px",textAlign:"right",color:C.blue,fontSize:14,fontWeight:800}}>{won(grand)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   ★★★ 엑셀 가져오기 (sheet_to_json 방식 - 완전 재작성) ★★★
+══════════════════════════════════════════════════════════════════ */
+function cleanName(raw){
+  let n=String(raw||"").trim();
+  n=n.replace(/^\d+년\s*/,"").replace(/^\d+월\s*/,"").replace(/\s*\([^)]*\)\s*$/,"");
+  n=n.replace(/\s*(대타|마포시립.*|누락.*)$/,"").trim();
+  return n;
+}
+
+async function parseExcelFile(file){
+  const buf=await file.arrayBuffer();
+  // cellDates:true → 날짜/시간 셀을 JS Date로 변환, cellText:true → 표시값 .w 생성
+  const wb=XLSX.read(buf,{type:"array",cellDates:true,cellText:true});
+  const empMap={},recs=[];
+
+  const parseNum=s=>{const n=parseFloat(String(s||"").replace(/[,₩원\s]/g,""));return isNaN(n)?0:n;};
+  const parseTime=s=>{
+    if(!s)return"";
+    const str=String(s).trim();
+    const m=str.match(/^(\d{1,2}):(\d{2})/);
+    if(!m)return"";
+    const h=+m[1],mi=+m[2];
+    if(h===0&&mi===0)return"";
+    return`${String(h).padStart(2,"0")}:${String(mi).padStart(2,"0")}`;
+  };
+
+  for(const shName of wb.SheetNames){
+    if(shName.includes("총지급")||shName.includes("현황"))continue;
+    const ws=wb.Sheets[shName];
+    if(!ws)continue;
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:""});
+    if(rows.length<20)continue;
+
+    /* ── B10 날짜 읽기: 셀 직접 접근(우선) + 문자열 파싱(보조) + 시트명 파싱(최후) ── */
+    let year=0,month=0;
+    const b10=ws[XLSX.utils.encode_cell({r:9,c:1})];
+    if(b10){
+      if(b10.v instanceof Date){year=b10.v.getFullYear();month=b10.v.getMonth()+1;}
+      else if(typeof b10.v==="number"&&b10.v>40000){
+        const d=new Date(Math.round((b10.v-25569)*86400*1000));year=d.getFullYear();month=d.getMonth()+1;
+      }
+    }
+    // 셀 직접 접근 실패 시 표시 문자열 파싱
+    if(!year){
+      const s=String(b10?.w||rows[9]?.[1]||"");
+      const m1=s.match(/(\d{4})[-./년](\d{1,2})/);
+      if(m1){year=+m1[1];month=+m1[2];}
+      else{const m2=s.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4})/);if(m2){year=+m2[3];month=+m2[1];}}
+    }
+    // 모두 실패 시 시트명에서 파싱 ("26년 4월 홍길동" → 2026, 4)
+    if(!year){
+      const sm=shName.match(/(\d{2,4})년?\s*(\d{1,2})월/);
+      if(sm){year=+sm[1]<100?2000+(+sm[1]):+sm[1];month=+sm[2];}
+    }
+    if(!year||!month||year<2020||year>2030)continue;
+
+    /* ── 직원 정보 (row 10 = index 9) ── */
+    const r9=rows[9]||[];
+    const name=String(r9[5]||"").replace(/^\d+[년월]\s*/g,"").replace(/\s*\([^)]*\)$/,"").trim();
+    if(!name)continue;
+    const phone=String(r9[6]||"").trim();
+    const bank=String(r9[8]||"").trim();
+    const account=String(r9[10]||"").trim();
+
+    /* ── 시급/가불금 (row 16 = index 15) ── */
+    const r15=rows[15]||[];
+    const wdRate=parseNum(r15[5])||10030;
+    const weRate=parseNum(r15[6])||wdRate;
+    const advance=parseNum(r15[10])||0;
+
+    empMap[name]={
+      phone:phone||empMap[name]?.phone||"",
+      bank:bank||empMap[name]?.bank||"",
+      account:account||empMap[name]?.account||"",
+      weekdayRate:wdRate,weekendRate:weRate,
+    };
+
+    /* ── 일별 근무 (row 19-49 = index 18-48) ── */
+    const days={};
+    for(let i=18;i<=48;i++){
+      const row=rows[i]||[];
+      const inT=parseTime(row[3]);   // D: 출근
+      const outT=parseTime(row[4]);  // E: 퇴근
+      // ★ 핵심 수정: 출근/퇴근 둘 다 있어야 저장 (하나라도 없으면 스킵)
+      if(!inT||!outT)continue;
+      // ★ 핵심 수정: 실근무시간이 0인 경우 스킵 (stale 캐시 방어)
+      const wm=workMins(inT,outT);
+      if(wm<=0)continue;
+      // 휴게시간: 가져오지 않음 (직접 입력)
+      const ex=Math.round(parseNum(row[11])||0); // L: 추가수당
+      const note=String(row[13]||"").trim();      // N: 비고
+      const day=i-17; // index18→day1, 19→day2, ... 48→day31
+      days[day]={inTime:inT,outTime:outT,breakTime:"",extra:ex,note};
+    }
+    if(!Object.keys(days).length)continue;
+    recs.push({name,year,month,wdRate,weRate,advance,days,shName});
+  }
+  return{empMap,recs};
+}
+
+/* ─── 엑셀 가져오기 탭 ──────────────────────────────────────────── */
+function ImportTab({employees,records,db}){
+  const[status,setStatus]=useState("idle");
+  const[preview,setPreview]=useState(null);
+  const[progress,setProgress]=useState(0);
+  const[errMsg,setErrMsg]=useState("");
+  const[dragOver,setDragOver]=useState(false);
+  const[clearFirst,setClearFirst]=useState(true); // ★ 기존 데이터 초기화 여부
+
+  const handleFile=async file=>{
+    if(!file||!file.name.match(/\.xlsx?$/i)){setErrMsg("xlsx 파일만 가능합니다.");return;}
+    setStatus("parsing");setErrMsg("");
+    try{const data=await parseExcelFile(file);setPreview(data);setStatus("preview");}
+    catch(e){console.error(e);setErrMsg("파싱 오류: "+e.message);setStatus("error");}
+  };
+
+  const doImport=async()=>{
+    if(!preview)return;
+    setStatus("importing");setProgress(0);
+    try{
+      const{empMap,recs}=preview;
+      const nameToId={};
+      employees.forEach(e=>{nameToId[e.name]=e.id;});
+
+      // ★ 기존 근태 데이터 전체 삭제 (옵션 켜진 경우)
+      if(clearFirst){
+        const existKeys=Object.keys(records);
+        for(let i=0;i<existKeys.length;i+=400){
+          const b=db.batch();
+          existKeys.slice(i,i+400).forEach(k=>b.delete(db.collection("arb_records").doc(k)));
+          await b.commit();
+        }
+      }
+
+      // 신규 직원 생성
+      for(const[name,info]of Object.entries(empMap)){
+        if(!nameToId[name]){
+          const id=Date.now().toString()+Math.random().toString(36).slice(2,6);
+          await db.collection("arb_employees").doc(id).set({...info,name,id,status:"재직",createdAt:Date.now()});
+          nameToId[name]=id;
+          await new Promise(r=>setTimeout(r,50));
+        }
+      }
+
+      // 배치 업로드
+      const total=recs.length;let done=0;
+      for(let i=0;i<recs.length;i+=400){
+        const batch=db.batch();
+        for(const rec of recs.slice(i,i+400)){
+          const eid=nameToId[rec.name];if(!eid)continue;
+          const k=`${eid}_${rec.year}_${rec.month}`;
+          batch.set(db.collection("arb_records").doc(k),{
+            empId:eid,
+            meta:{year:rec.year,month:rec.month,advance:rec.advance,wdRate:rec.wdRate,weRate:rec.weRate},
+            days:rec.days,
+          });
+          done++;setProgress(Math.round(done/total*100));
+        }
+        await batch.commit();
+      }
+      setStatus("done");
+    }catch(e){console.error(e);setErrMsg("업로드 오류: "+e.message);setStatus("error");}
+  };
+
+  const reset=()=>{setStatus("idle");setPreview(null);setProgress(0);setErrMsg("");};
+
+  if(status==="done")return(
+    <div style={{...card({textAlign:"center",padding:"60px 0"}),animation:"fadeIn .3s ease"}}>
+      <div style={{fontSize:60,marginBottom:16}}>🎉</div>
+      <div style={{fontWeight:800,fontSize:20,color:C.green,marginBottom:8}}>가져오기 완료!</div>
+      <div style={{color:C.mid,fontSize:14,marginBottom:20}}>직원 {Object.keys(preview.empMap).length}명, 근태기록 {preview.recs.length}건 저장 완료</div>
+      <button onClick={reset} style={btn(C.blue)}>다시 가져오기</button>
+    </div>
+  );
+  if(status==="importing")return(
+    <div style={{...card({textAlign:"center",padding:"60px 0"}),animation:"fadeIn .3s ease"}}>
+      <div style={{fontSize:50,marginBottom:16}}>☁️</div>
+      <div style={{fontWeight:700,fontSize:17,marginBottom:12}}>Firebase에 업로드 중...</div>
+      <div style={{background:C.bg,borderRadius:20,height:12,width:"60%",margin:"0 auto 12px",overflow:"hidden"}}>
+        <div style={{height:"100%",background:C.blue,borderRadius:20,width:`${progress}%`,transition:"width 0.3s"}}></div>
+      </div>
+      <div style={{color:C.mid,fontSize:14}}>{progress}% ({Math.round(preview.recs.length*progress/100)} / {preview.recs.length}건)</div>
+    </div>
+  );
+  if(status==="parsing")return(
+    <div style={{...card({textAlign:"center",padding:"60px 0"})}}>
+      <div style={{width:40,height:40,border:"3px solid rgba(0,0,0,0.1)",borderTop:`3px solid ${C.blue}`,borderRadius:"50%",animation:"spin 1s linear infinite",margin:"0 auto 16px"}}></div>
+      <div style={{color:C.mid}}>엑셀 파일 분석 중...</div>
+    </div>
+  );
+  return(
+    <div style={{animation:"fadeIn .3s ease"}}>
+      <div style={{...card({marginBottom:14})}}>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:6}}>📥 기존 엑셀 파일 가져오기</div>
+        <div style={{color:C.mid,fontSize:13}}>기존 아르바이트 급여계산 엑셀 파일(.xlsx)을 업로드하면 모든 근태 기록이 Firebase에 저장됩니다.<br/>
+          <b>※ 휴게시간은 가져오지 않습니다</b> — 직접 입력해 주세요.</div>
+      </div>
+      {status==="idle"&&(
+        <div style={card()}>
+          <div style={{
+            border:`2px dashed ${dragOver?C.blue:C.border}`,borderRadius:12,padding:"48px 24px",textAlign:"center",
+            background:dragOver?"#EEF4FF":"#F8FAFD",cursor:"pointer",transition:"all 0.2s",
+          }}
+            onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+            onDragLeave={()=>setDragOver(false)}
+            onDrop={e=>{e.preventDefault();setDragOver(false);handleFile(e.dataTransfer.files[0]);}}
+            onClick={()=>document.getElementById("xl-input").click()}>
+            <div style={{fontSize:48,marginBottom:12}}>📂</div>
+            <div style={{fontWeight:600,fontSize:15,marginBottom:6}}>엑셀 파일을 끌어다 놓거나 클릭하세요</div>
+            <div style={{color:C.mid,fontSize:13}}>2023_월별_아르바이트_주급_월급자동계산_근무시간_주휴수당_.xlsx</div>
+            <input id="xl-input" type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+          </div>
+          {errMsg&&<div style={{color:C.red,marginTop:12,fontSize:13}}>⚠️ {errMsg}</div>}
+        </div>
+      )}
+      {status==="preview"&&preview&&(
+        <div style={card()}>
+          <div style={{fontWeight:700,fontSize:15,marginBottom:16}}>✅ 파일 분석 완료 — 미리보기</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
+            {[
+              {l:"인식된 직원 수",v:`${Object.keys(preview.empMap).length}명`,c:C.blue},
+              {l:"처리된 시트 수",v:`${preview.recs.length}개`,c:C.green},
+              {l:"기간",v:`${Math.min(...preview.recs.map(r=>r.year))}년~${Math.max(...preview.recs.map(r=>r.year))}년`,c:C.orange},
+            ].map((it,i)=><div key={i} style={{...card({padding:"12px 14px"}),borderLeft:`4px solid ${it.c}`,textAlign:"center"}}>
+              <div style={{fontSize:11,color:C.mid,marginBottom:4}}>{it.l}</div>
+              <div style={{fontWeight:700,fontSize:16,color:it.c}}>{it.v}</div>
+            </div>)}
+          </div>
+          <div style={{fontWeight:600,fontSize:13,marginBottom:8,color:C.mid}}>인식된 직원</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:20}}>
+            {Object.entries(preview.empMap).map(([name,info])=>(
+              <div key={name} style={{background:"#EEF4FF",borderRadius:20,padding:"5px 14px",fontSize:13,fontWeight:600,color:C.blue}}>
+                {name}<span style={{fontSize:11,color:C.mid,marginLeft:6}}>{info.weekdayRate.toLocaleString()}원/h</span>
+              </div>
+            ))}
+          </div>
+          <div style={{fontWeight:600,fontSize:13,marginBottom:8,color:C.mid}}>📋 근무일 샘플 확인 (요일이 맞는지 확인!)</div>
+          <div style={{overflowX:"auto",marginBottom:20,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead>
+                <tr style={{background:C.blue}}>
+                  {["시트명","직원","년월","근무일수","출근시간","근무일(요일)"].map((h,i)=><th key={i} style={{padding:"7px 10px",color:"#FFF",fontWeight:600,textAlign:"left"}}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {preview.recs.slice(-8).map((rec,i)=>{
+                  const nums=Object.keys(rec.days).map(Number).sort((a,b)=>a-b);
+                  const sD=rec.days[nums[0]];
+                  return(
+                    <tr key={i} style={{background:i%2===0?C.card:C.rowAlt}}>
+                      <td style={{padding:"7px 10px",color:C.mid,fontSize:11}}>{rec.shName}</td>
+                      <td style={{padding:"7px 10px",fontWeight:600}}>{rec.name}</td>
+                      <td style={{padding:"7px 10px"}}>{rec.year}년 {rec.month}월</td>
+                      <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600}}>{nums.length}일</td>
+                      <td style={{padding:"7px 10px",color:C.blue}}>{sD?.inTime||"-"}~{sD?.outTime||"-"}</td>
+                      <td style={{padding:"7px 10px",fontSize:11}}>
+                        {nums.slice(0,6).map(d=>{
+                          const dow=new Date(rec.year,rec.month-1,d).getDay();
+                          const iwe=dow===0||dow===6;
+                          return<span key={d} style={{marginRight:5,color:iwe?C.orange:C.text,fontWeight:iwe?700:400}}>{d}({["일","월","화","수","목","금","토"][dow]})</span>;
+                        })}
+                        {nums.length>6&&<span style={{color:C.light}}>+{nums.length-6}일</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{background:"#FFFBEB",border:"1px solid #FCD34D",borderRadius:8,padding:"14px 16px",marginBottom:20,fontSize:13}}>
+            <div style={{fontWeight:700,marginBottom:8}}>⚠️ 가져오기 전 확인</div>
+            <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer",marginBottom:8}}>
+              <input type="checkbox" checked={clearFirst} onChange={e=>setClearFirst(e.target.checked)} style={{marginTop:2,cursor:"pointer"}}/>
+              <span>
+                <b>기존 근태 기록 전체 삭제 후 가져오기 (강력 권장 ✅)</b><br/>
+                <span style={{color:C.mid,fontSize:11}}>이전 수동 입력 데이터가 잘못된 경우 반드시 체크하세요. 엑셀 내용으로 완전히 교체합니다.</span>
+              </span>
+            </label>
+            {!clearFirst&&<div style={{color:C.orange,fontSize:12}}>⚠️ 미체크: 기존 데이터 위에 덮어쓰기. 잘못된 기존 데이터가 남을 수 있습니다.</div>}
+            <div style={{marginTop:8,fontSize:11,color:C.mid}}>
+              • 휴게시간은 가져오지 않습니다 (직접 입력 필요)<br/>
+              • 직원 로그인 비밀번호는 [직원 관리]에서 별도 설정 필요
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={reset} style={btn(C.bg,C.mid)}>취소</button>
+            <button onClick={doImport} style={btn(clearFirst?C.red:C.green,void 0,{fontSize:14,padding:"10px 24px"})}>
+              {clearFirst?`🗑️ 초기화+가져오기 (${preview.recs.length}건)`:`🚀 가져오기 (${preview.recs.length}건)`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── 인쇄 뷰 (팀장으로 변경) ───────────────────────────────────── */
+function PrintSlip({emp,stats,year,month,onClose}){
+  useEffect(()=>{const t=setTimeout(()=>window.print(),400);return()=>clearTimeout(t);},[]);
+  return(
+    <div style={{background:"#fff",padding:30,fontFamily:"'Noto Sans KR',sans-serif"}}>
+      <button id="no-print" onClick={onClose} style={{...btn(C.blue,void 0,{marginBottom:20})}}>← 돌아가기</button>
+      <PayslipTab emp={emp} stats={stats} year={year} month={month}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
