@@ -268,8 +268,8 @@ function App(){
     return null;
   };
 
-  /* 대시보드 데이터 */
-  const dashData=useMemo(()=>employees.map(emp=>{
+  /* 대시보드 데이터 (재직자만) */
+  const dashData=useMemo(()=>employees.filter(e=>e.status!=="퇴사").map(emp=>{
     const rec=getRec(emp.id,selY,selM);
     return{emp,stats:computeMonth(emp,rec)};
   }),[employees,selY,selM,getRec]);
@@ -579,23 +579,17 @@ function DashboardTab({data,year,month,onSelect}){
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
               <thead>
                 <tr style={{background:C.bg}}>
-                  {["상태","성명","근무일","실근무시간","일급여","주휴수당","가불금","실지급액(세전)","3.3%원천","💰실수령액",""].map((h,i)=>(
-                    <th key={i} style={{padding:"9px 10px",textAlign:i>=2&&i<=9?"right":"left",fontWeight:600,color:C.mid,borderBottom:`1px solid ${C.border}`,fontSize:12,whiteSpace:"nowrap"}}>{h}</th>
+                  {["성명","근무일","실근무시간","일급여","주휴수당","가불금","실지급액(세전)","3.3%원천","💰실수령액",""].map((h,i)=>(
+                    <th key={i} style={{padding:"9px 10px",textAlign:i>=1&&i<=8?"right":"left",fontWeight:600,color:C.mid,borderBottom:`1px solid ${C.border}`,fontSize:12,whiteSpace:"nowrap"}}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {data.map(({emp,stats},i)=>{
-                  const isRet=emp.status==="퇴사";
-                  return(
-                    <tr key={emp.id} style={{background:i%2===0?C.card:C.rowAlt,cursor:"pointer",opacity:isRet?0.6:1}}
+                {data.map(({emp,stats},i)=>(
+                    <tr key={emp.id} style={{background:i%2===0?C.card:C.rowAlt,cursor:"pointer"}}
                       onClick={()=>onSelect(emp.id)}
                       onMouseOver={e=>e.currentTarget.style.background="#EEF4FF"}
                       onMouseOut={e=>e.currentTarget.style.background=i%2===0?C.card:C.rowAlt}>
-                      <td style={{padding:"10px"}}>
-                        <span style={{fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700,
-                          background:isRet?"#E5E7EB":"#DCFCE7",color:isRet?C.light:C.green}}>{isRet?"퇴사":"재직"}</span>
-                      </td>
                       <td style={{padding:"10px",fontWeight:600}}>{emp.name}</td>
                       <td style={{padding:"10px",textAlign:"right",color:C.mid}}>{stats?.workDays||0}일</td>
                       <td style={{padding:"10px",textAlign:"right",color:C.mid}}>{m2t(stats?.sumRm||0)}</td>
@@ -607,10 +601,9 @@ function DashboardTab({data,year,month,onSelect}){
                       <td style={{padding:"10px",textAlign:"right",fontWeight:700,color:C.blue,fontSize:14}}>{won(stats?.finalPay||stats?.netPay)}원</td>
                       <td style={{padding:"10px",fontSize:11,color:C.blue}}>근태→</td>
                     </tr>
-                  );
-                })}
+                ))}
                 <tr style={{background:"#EEF4FF",fontWeight:700}}>
-                  <td colSpan={9} style={{padding:"10px",textAlign:"right",fontSize:12,color:C.mid}}>합 계</td>
+                  <td colSpan={8} style={{padding:"10px",textAlign:"right",fontSize:12,color:C.mid}}>합 계</td>
                   <td style={{padding:"10px",textAlign:"right",color:C.blue,fontSize:15}}>{won(totalFinal)}원</td>
                   <td></td>
                 </tr>
@@ -627,29 +620,35 @@ function DashboardTab({data,year,month,onSelect}){
    직원 관리
 ══════════════════════════════════════════════════════════════════ */
 function EmployeesTab({employees,onAdd,onEdit,onDel,onToggle}){
-  const sorted=[...employees].sort((a,b)=>{const sa=a.status==="퇴사"?1:0,sb=b.status==="퇴사"?1:0;return sa-sb||(a.createdAt||0)-(b.createdAt||0);});
-  const active=sorted.filter(e=>e.status!=="퇴사").length;
-  const retired=sorted.filter(e=>e.status==="퇴사").length;
+  const[empTab,setEmpTab]=React.useState("active");
+  const activeList=[...employees].filter(e=>e.status!=="퇴사").sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  const retiredList=[...employees].filter(e=>e.status==="퇴사").sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const sorted=empTab==="active"?activeList:retiredList;
+  const active=activeList.length;
+  const retired=retiredList.length;
   return(
     <div style={{...card(),animation:"fadeIn .3s ease"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
-        <div style={{fontWeight:700,fontSize:15}}>
-          👥 직원 목록
-          <span style={{marginLeft:10,fontSize:13,fontWeight:400}}>
-            <span style={{color:C.green,fontWeight:600}}>재직 {active}명</span>
-            {retired>0&&<span style={{color:C.light,marginLeft:8}}>퇴사 {retired}명</span>}
-          </span>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>setEmpTab("active")} style={{padding:"6px 18px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,fontFamily:"inherit",background:empTab==="active"?"#DCFCE7":"#F3F4F6",color:empTab==="active"?C.green:C.mid}}>
+            재직 {active}명
+          </button>
+          <button onClick={()=>setEmpTab("retired")} style={{padding:"6px 18px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,fontFamily:"inherit",background:empTab==="retired"?"#E5E7EB":"#F3F4F6",color:empTab==="retired"?"#374151":C.mid}}>
+            퇴사 {retired}명
+          </button>
         </div>
-        <button onClick={onAdd} style={btn(C.blue)}>＋ 직원 추가</button>
+        {empTab==="active"&&<button onClick={onAdd} style={btn(C.blue)}>＋ 직원 추가</button>}
       </div>
       {sorted.length===0?(
-        <div style={{textAlign:"center",padding:"50px 0",color:C.mid}}>등록된 직원이 없습니다.</div>
+        <div style={{textAlign:"center",padding:"50px 0",color:C.mid}}>
+          {empTab==="active"?"등록된 재직 직원이 없습니다.":"퇴사 처리된 직원이 없습니다."}
+        </div>
       ):(
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
             <thead>
               <tr style={{background:C.bg}}>
-                {["상태","성명(로그인ID)","연락처","은행명","계좌번호","평일시급","주말시급","로그인","관리"].map((h,i)=>(
+                {["성명(로그인ID)","연락처","은행명","계좌번호","평일시급","주말시급","로그인","관리"].map((h,i)=>(
                   <th key={i} style={{padding:"10px 12px",textAlign:"left",fontWeight:600,color:C.mid,borderBottom:`1px solid ${C.border}`,fontSize:12}}>{h}</th>
                 ))}
               </tr>
@@ -657,15 +656,10 @@ function EmployeesTab({employees,onAdd,onEdit,onDel,onToggle}){
             <tbody>
               {sorted.map((e,i)=>{
                 const isRet=e.status==="퇴사";
-                const bg=isRet?"#F9FAFB":(i%2===0?C.card:C.rowAlt);
+                const bg=i%2===0?C.card:C.rowAlt;
                 return(
-                  <tr key={e.id} style={{background:bg,opacity:isRet?0.7:1}}>
-                    <td style={{padding:"11px 12px"}}>
-                      <button onClick={()=>onToggle(e)} style={{padding:"4px 12px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"inherit",background:isRet?"#E5E7EB":"#DCFCE7",color:isRet?C.light:C.green}}>
-                        {isRet?"퇴사":"재직"}
-                      </button>
-                    </td>
-                    <td style={{padding:"11px 12px",fontWeight:700,color:isRet?C.light:C.text}}>
+                  <tr key={e.id} style={{background:bg}}>
+                    <td style={{padding:"11px 12px",fontWeight:700,color:C.text}}>
                       {e.name}
                       <span style={{marginLeft:6,fontSize:10,color:C.light,fontWeight:400}}>ID</span>
                     </td>
@@ -681,6 +675,7 @@ function EmployeesTab({employees,onAdd,onEdit,onDel,onToggle}){
                     </td>
                     <td style={{padding:"11px 12px"}}>
                       <div style={{display:"flex",gap:6}}>
+                        <button onClick={()=>onToggle(e)} style={btn(isRet?"#DCFCE7":"#FFF7ED",isRet?C.green:"#D97706",{padding:"5px 10px",fontSize:11})}>{isRet?"복직":"퇴사처리"}</button>
                         <button onClick={()=>onEdit(e)} style={btn("#EEF4FF",C.blue,{padding:"5px 12px",fontSize:12})}>수정</button>
                         <button onClick={()=>onDel(e)} style={btn("#FFF0F0",C.red,{padding:"5px 12px",fontSize:12})}>삭제</button>
                       </div>
