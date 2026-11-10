@@ -122,7 +122,7 @@ function computeMonth(emp,rec){
   const sumDp=days.reduce((s,d)=>s+d.dp,0),sumHp=days.reduce((s,d)=>s+d.hp,0);
   const sumEx=days.reduce((s,d)=>s+d.ex,0),sumAutoHB=days.reduce((s,d)=>s+(d.autoHB||0),0);
   const totalPay=sumDp+sumHp,netPay=totalPay-advance+sumEx+sumAutoHB;
-  const finalPay=Math.round(netPay/(1-0.033)/10)*10; // 역산 후 10원 단위 반올림
+  const finalPay=Math.ceil(netPay/(1-0.033)/10)*10;  // 역산 후 10원 단위 올림
   const tax33=finalPay-netPay;                       // 병원 부담 원천징수액
   return{days,sumWm,sumRm,sumDp,sumHp,sumEx,sumAutoHB,totalPay,advance,netPay,
     tax33,finalPay,workDays:days.filter(d=>d.rm>0).length,wdRate,weRate};
